@@ -33,6 +33,10 @@ ENV LANG en_US.UTF-8
 # Install unversioned dependency packages from Ubuntu repositories.
 
 ENV UNVERSIONED_DEPENDENCY_PACKAGES \
+ # Needed by the bash script to determine if this is the latest container.
+ curl \
+ jq \
+ # Needed to install the Python packages
  python3-pip \
  python3-setuptools
 
