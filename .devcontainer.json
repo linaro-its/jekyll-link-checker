@@ -1,0 +1,7 @@
+// See https://aka.ms/vscode-remote/devcontainer.json for format details.
+{
+    "dockerFile": "Dockerfile",
+    "runArgs": [
+        "-v", "C:\\Users\\phili\\Documents\\GitHub\\optee_website:/srv"
+    ]
+}
