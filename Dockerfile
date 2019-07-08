@@ -65,5 +65,10 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 COPY check-links-3.py check-links.sh /usr/local/bin/
 RUN chmod a+rx /usr/local/bin/check-links-3.py /usr/local/bin/check-links.sh
 
+################################################################################
+# Record the Bamboo build job (if specified as an argument)
+ARG bamboo_build
+ENV BAMBOO_BUILD=${bamboo_build}
+
 ENTRYPOINT ["/usr/local/bin/check-links.sh"]
 CMD []
