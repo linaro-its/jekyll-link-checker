@@ -6,7 +6,7 @@
 function get_tag_for_latest(){
     LATEST_ALIAS=""
     # From https://stackoverflow.com/a/41830007/1233830
-    REPOSITORY="linaroits/jekyllsitebuild"
+    REPOSITORY="linaroits/linkcheck"
     TARGET_TAG="latest"
     # check that we have Internet access - bail quickly if we don't
     HEAD=$(curl -s "https://auth.docker.io") || return $?
@@ -34,7 +34,8 @@ if [ ! -z "${BAMBOO_BUILD}" ]; then
     get_tag_for_latest || LATEST_ALIAS=""
     if [ ! -z "$LATEST_ALIAS" ] && [ "$LATEST_ALIAS" != "${BAMBOO_BUILD}" ]; then
         echo "***************************************************************"
-        echo "WARNING! This does not appear to be the latest Docker image."
+        echo "WARNING! This does not appear to be the latest Docker image:"
+        echo "         $LATEST_ALIAS"
         echo "If the build fails, please 'git pull linaroits/jekyllsitebuild'"
         echo "and try again."
         echo "***************************************************************"
