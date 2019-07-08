@@ -5,7 +5,7 @@ The container provides a self-contained link checking tool. This avoids needing 
 
 This link checking tool has been written to check a local copy of a web site, e.g. a static web site built by Jekyll. That allows it to very quickly validate internal web links as they should be referencing files within the directory being scanned. The tool will also scan external links and report on any that don't work.
 
-There are a lot of command line options to control the behaviour of the tool and these are explained in the wiki.
+There are a lot of command line options to control the behaviour of the tool and these are explained in the [wiki](https://github.com/linaro-its/jekyll-link-checker/wiki/Using-the-link-checker).
 
 
 # Building
