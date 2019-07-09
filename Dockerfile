@@ -11,7 +11,6 @@ LABEL maintainer="it-services@linaro.org"
 RUN export DEBIAN_FRONTEND=noninteractive && \
  apt-get clean -y && \
  apt-get update && \
- apt-get install apt-utils -y && \
  apt-get upgrade -y && \
  apt-get install -y language-pack-en && \
  locale-gen en_US.UTF-8 && \
