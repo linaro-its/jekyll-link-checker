@@ -34,6 +34,7 @@ ENV LANG en_US.UTF-8
 
 ENV UNVERSIONED_DEPENDENCY_PACKAGES \
  # Needed by the bash script to determine if this is the latest container.
+ python3-minimal \
  curl \
  jq
 ENV EPHEMERAL_UNVERSIONED_PACKAGES \
