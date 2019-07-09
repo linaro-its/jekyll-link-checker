@@ -9,8 +9,7 @@ LABEL maintainer="it-services@linaro.org"
 # Install unversioned dependency packages from Ubuntu repositories.
 
 ENV UNVERSIONED_DEPENDENCY_PACKAGES \
- bash \
- # Needed by the bash script to determine if this is the latest container.
+ # Needed by the busybox script to determine if this is the latest container.
  curl \
  jq \
  # Needed to install the Python packages

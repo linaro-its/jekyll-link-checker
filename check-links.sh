@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/bin/sh
 #
 # This script is run inside the Docker container to check that we're running the latest container
 # and warn if we aren't, then kick off running the link checker tool.
 
-function get_tag_for_latest(){
+get_tag_for_latest(){
     LATEST_ALIAS=""
     # From https://stackoverflow.com/a/41830007/1233830
     REPOSITORY="linaroits/linkcheck"
@@ -17,7 +17,7 @@ function get_tag_for_latest(){
     # get image digest for target
     TARGET_DIGEST=$(curl -s -D - -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" https://index.docker.io/v2/$REPOSITORY/manifests/$TARGET_TAG | grep Docker-Content-Digest | cut -d ' ' -f 2) || return $?
     # for each tags
-    for tag in ${ALL_TAGS[@]}; do
+    for tag in ${#ALL_TAGS}; do
         # get image digest
         digest=$(curl -s -D - -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" https://index.docker.io/v2/$REPOSITORY/manifests/$tag | grep Docker-Content-Digest | cut -d ' ' -f 2) || return $?
         # check digest
