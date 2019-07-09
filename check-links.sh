@@ -33,12 +33,12 @@ if [ ! -z "${BAMBOO_BUILD}" ]; then
     echo "Container built by bamboo.linaro.org: ${BAMBOO_BUILD}"
     get_tag_for_latest || LATEST_ALIAS=""
     if [ ! -z "$LATEST_ALIAS" ] && [ "$LATEST_ALIAS" != "${BAMBOO_BUILD}" ]; then
-        echo "***************************************************************"
+        echo "************************************************************"
         echo "WARNING! This does not appear to be the latest Docker image:"
         echo "         $LATEST_ALIAS"
-        echo "If the build fails, please 'git pull linaroits/jekyllsitebuild'"
+        echo "If the build fails, please 'docker pull linaroits/linkcheck'"
         echo "and try again."
-        echo "***************************************************************"
+        echo "************************************************************"
     fi
 fi
 
