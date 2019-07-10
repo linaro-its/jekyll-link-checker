@@ -1,4 +1,5 @@
-#!/bin/sh
+#!/bin/ash
+# shellcheck shell=dash
 #
 # This script is run inside the Docker container to check that we're running the latest container
 # and warn if we aren't, then kick off running the link checker tool.
@@ -29,10 +30,10 @@ get_tag_for_latest(){
 
 #
 # If possible, show which container version this is
-if [ ! -z "${BAMBOO_BUILD}" ]; then
+if [ -z "$BAMBOO_BUILD" ]; then
     echo "Container built by bamboo.linaro.org: ${BAMBOO_BUILD}"
     get_tag_for_latest || LATEST_ALIAS=""
-    if [ ! -z "$LATEST_ALIAS" ] && [ "$LATEST_ALIAS" != "${BAMBOO_BUILD}" ]; then
+    if [ -n "$LATEST_ALIAS" ] && [ "$LATEST_ALIAS" != "${BAMBOO_BUILD}" ]; then
         echo "************************************************************"
         echo "WARNING! This does not appear to be the latest Docker image:"
         echo "         $LATEST_ALIAS"
