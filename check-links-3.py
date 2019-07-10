@@ -240,7 +240,8 @@ async def check_unique_links():
         ssl=False,
         limit=500
     )
-    async with aiohttp.ClientSession(connector=conn,timeout=60) as session:
+    async with aiohttp.ClientSession(connector=conn,
+                                     timeout=60) as session:
         await async_check_web(session, unique_links)
     for p in file_link_pairs:
         # p[0] is the file path and p[1] is the URL.
