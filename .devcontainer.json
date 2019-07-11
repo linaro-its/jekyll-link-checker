@@ -1,7 +1,18 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
-    "dockerFile": "Dockerfile",
-    "runArgs": [
-        "-v", "C:\\Users\\phili\\Documents\\GitHub\\optee_website:/srv"
-    ]
+	// "context": "..",
+	"dockerFile": "Dockerfile",
+	// Broken in containers?
+	// "extensions": [
+	// 	"ban.spellright",
+	// 	"ms-python.python"
+	// ],
+	// Support git with GPG signing inside the VS Code remote
+	// "postCreateCommand": "apt-get update && apt-get install -y git gpg"
+	"postCreateCommand": "apk add --no-cache --update git gnupg py3-flake8"
+	// Broken in containers?
+	// // Not strictly necessary, but a useful memory aid:
+	// "settings": {
+	// 	"python.pythonPath": "/usr/bin/python3"
+	// }
 }

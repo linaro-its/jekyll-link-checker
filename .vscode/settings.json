@@ -1,0 +1,30 @@
+{
+    "editor.renderWhitespace": "all",
+    "files.eol": "\n",
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+    "files.trimTrailingWhitespace": true,
+    "spellright.language": [
+        "en_GB"
+    ],
+    "spellright.documentTypes": [
+        "markdown",
+        "latex",
+        "plaintext"
+    ]
+    // Broken in containers?
+    // "spellright.language": [
+    //     "en_GB-large"
+    // ],
+    // "spellright.documentTypes": [
+    //     "markdown",
+    //     "latex",
+    //     "plaintext",
+    //     "python"
+    // ],
+    // // https://marketplace.visualstudio.com/items?itemName=ms-python.python
+    // "python.linting.enabled": true,
+    // "python.linting.flake8Enabled": true,
+    // "python.linting.pylintEnabled": false,
+    // // https://marketplace.visualstudio.com/items?itemName=ban.spellright
+}
