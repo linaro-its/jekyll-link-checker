@@ -38,15 +38,18 @@ class LinkCheckerDB:
             last_checked NOT NULL
         );
         """
-        self.query(create_link_table)
-        return True
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(create_link_table)
+            return True
+        except Error as e:
+            print(e)
+            return False
 
     def query(self, sql_query):
         try:
             cursor = self.connection.cursor()
             cursor.execute(sql_query)
-            results = cursor.fetchall()
-            return results
         except Error as e:
             print(e)
             return False
