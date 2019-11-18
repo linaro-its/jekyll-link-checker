@@ -11,6 +11,7 @@ import socket
 import aiohttp
 import asyncio
 import concurrent
+from link_db import LinkCheckerDB
 
 # The link checking process depends on whether it is a relative
 # or absolute link. If it is a relative link, a file is looked for
@@ -34,15 +35,29 @@ class JekyllLinkChecker:
         self.unique_links = []
         self.failed_links = []
         self.unique_links = []
+        self.skip_elements = {
+            "a": "#edit_on_github"
+        }
         self.status_count = 0
         self.html_cache_results = {}
         self.dns_skip = []
         self.verbose = 0
         self.output_file = None
         self.args = self.parse_args()
+        if self.args.db:
+            # Create a new instance of the LinkCheckerDB object
+            if self.args.db_file:
+                self.sqlite_database = LinkCheckerDB()
+            else:
+                self.sqlite_database = LinkCheckerDB(self.args.db_file)
+        else:
+            self.sqlite_database = None
         self.main()
 
     def main(self):
+        """
+        Main method - runs on instantiation
+        """
         print("Linaro Link Checker")
         if self.args.verbose is not None:
             self.verbose = self.args.verbose
@@ -75,7 +90,7 @@ class JekyllLinkChecker:
                             help='specifies text file of FQDNs to skip the DNS '
                             'check on')
         parser.add_argument('-s', '--skip-path', action='append',
-                            help='specifies a path to skip when checking URLs')
+                            help='specifies a path to skip when checking URLs', default=None)
         parser.add_argument('-v', '--verbose', action='count')
         parser.add_argument('-f', '--file', action='append',
                             help=('specifies a file to check;'
@@ -84,6 +99,10 @@ class JekyllLinkChecker:
                             help='skips checking of internal references')
         parser.add_argument('--noexternal', action='store_true',
                             help='skips checking of external references')
+        parser.add_argument('--db', action='store_true',
+                            help='Use a sqlite db to cache results', default=False)
+        parser.add_argument('--db_file', action='store_true',
+                            help='Specify the path to an existing sqlite database', default=None)
         parser.add_argument('-o', '--output', nargs='?', default=None,
                             help='specifies output file for error results')
         parser.add_argument('--no-external-errors', action='store_true',
@@ -301,35 +320,60 @@ class JekyllLinkChecker:
                     web_failed_links.append(error)
         return web_failed_links
 
-    # For the specified file, read it in and then check all of the links in it.
+    def remove_skip_elements(self, soup, a_links):
+        """
+        Removes any elements that have explicitly been set to skip
+        """
+        # Linaro specific ... find any "edit on GitHub" links so that
+        # they can be EXCLUDED from the list of links to check. The reason
+        # why is because if this is a new page (i.e. in a Pull Request),
+        # the file won't exist in the repository yet and so the link to
+        # the page would fail.
+        for skip_element_tag, skip_element_id in self.skip_elements.items():
+            gh_links = soup.find_all(skip_element_tag, id=skip_element_id)
+            for g in gh_links:
+                a_links.remove(g)
+        return a_links
 
     def check_file(self, filename, skip_list):
+        """
+        For the specified file, read it in and then check all of the links in it.
+        """
         file_failed_links = []
+        # Check file is not in skip list
         if not self.matched_skip(filename, skip_list):
             try:
-                with open(filename, "r") as myfile:
-                    data = myfile.read()
+                # Retreive contents of file
+                with open(filename, "r") as my_file:
+                    data = my_file.read()
+                # Setup new BeautifulSoup parser
                 soup = BeautifulSoup(data, 'html.parser')
+                # Find all Anchor tags (<a></a>)
                 a_links = soup.find_all('a')
-                # Linaro specific ... find any "edit on GitHub" links so that
-                # they can be EXCLUDED from the list of links to check. The reason
-                # why is because if this is a new page (i.e. in a Pull Request),
-                # the file won't exist in the repository yet and so the link to
-                # the page would fail.
-                gh_links = soup.find_all('a', id="edit_on_github")
-                for g in gh_links:
-                    a_links.remove(g)
+                # Remove any elements that have been set to be skipped.
+                a_links = self.remove_skip_elements(soup, a_links)
+                # Loop over all <a> links and check if links are valid
                 for link in a_links:
+                    # Validate link
                     result = self.validate_link(filename, link.get('href'))
+                    # Check to see if an error was found
                     if result is not None:
+                        # Create new list
                         error = [filename, result]
+                        # Check the error hasn't already been found for this file
                         if error not in file_failed_links:
+                            # Append error THIS file's broken links.
                             file_failed_links.append(error)
-                # Check linked images
-                img_links = soup.find_all('img')
-                for link in img_links:
-                    result = self.validate_link(filename, link.get('src'))
+                # Check images that have a src="" attribute
+                # Lazy loaded images should also be checked
+                # TODD add data-src support.
+                images_list = soup.find_all('img')
+                for image in images_list:
+                    # Validate link
+                    result = self.validate_link(filename, image.get('src'))
+                    # Check to see if result contains errors
                     if result is not None:
+                        # Create new list
                         error = [filename, result]
                         if error not in file_failed_links:
                             file_failed_links.append(error)
@@ -351,20 +395,31 @@ class JekyllLinkChecker:
     # Scan the specified directory, ignoring anything that matches skip_list.
 
     def scan_directory(self, path, skip_list):
+        """
+        Scans a directory for html files to check for broken links
+        """
         soft_failure = False
-        count = 1
+        # Get the all the HTML files in <path>
         html_files = self.get_all_html_files(path)
-        total = len(html_files)
+        # Get the total files we're checking
         if self.args.file is not None:
             total = len(self.args.file)
-        for hf in html_files:
-            if self.args.file is None or hf in self.args.file:
-                print("(%s/%s) Checking '%s'" % (count, total, hf))
+        else:
+            total = len(html_files)
+        # Loop over all HTML files found
+        count = 1
+        for html_file in html_files:
+            # Check to see if a file check list is set
+            # and if the file is in the check list.
+            if self.args.file is None or html_file in self.args.file:
+                print("(%s/%s) Checking '%s'" % (count, total, html_file))
                 count += 1
-                results = self.check_file(hf, skip_list)
-                for r in results:
-                    if r not in self.failed_links:
-                        self.failed_links.append(r)
+                # Check the file for broken links
+                results = self.check_file(html_file, skip_list)
+                for broken_link in results:
+                    if broken_link not in self.failed_links:
+                        self.failed_links.append(broken_link)
+
         if len(self.unique_links) == 0:
             print("No web links to check.")
         else:
