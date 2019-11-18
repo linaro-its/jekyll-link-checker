@@ -104,4 +104,4 @@ venv.bak/
 .mypy_cache/
 
 # Test Site Output
-_site/
+_site*
