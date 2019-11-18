@@ -11,7 +11,6 @@ import socket
 import aiohttp
 import asyncio
 import concurrent
-from link_db import LinkCheckerDB
 
 # The link checking process depends on whether it is a relative
 # or absolute link. If it is a relative link, a file is looked for
@@ -36,7 +35,7 @@ class JekyllLinkChecker:
         self.failed_links = []
         self.unique_links = []
         self.skip_elements = {
-            "a": "#edit_on_github"
+            "a": "edit_on_github"
         }
         self.status_count = 0
         self.html_cache_results = {}
@@ -44,14 +43,6 @@ class JekyllLinkChecker:
         self.verbose = 0
         self.output_file = None
         self.args = self.parse_args()
-        if self.args.db:
-            # Create a new instance of the LinkCheckerDB object
-            if self.args.db_file:
-                self.sqlite_database = LinkCheckerDB()
-            else:
-                self.sqlite_database = LinkCheckerDB(self.args.db_file)
-        else:
-            self.sqlite_database = None
         self.main()
 
     def main(self):
@@ -99,10 +90,6 @@ class JekyllLinkChecker:
                             help='skips checking of internal references')
         parser.add_argument('--noexternal', action='store_true',
                             help='skips checking of external references')
-        parser.add_argument('--db', action='store_true',
-                            help='Use a sqlite db to cache results', default=False)
-        parser.add_argument('--db_file', action='store_true',
-                            help='Specify the path to an existing sqlite database', default=None)
         parser.add_argument('-o', '--output', nargs='?', default=None,
                             help='specifies output file for error results')
         parser.add_argument('--no-external-errors', action='store_true',
