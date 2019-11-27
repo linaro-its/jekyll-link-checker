@@ -6,11 +6,18 @@ FROM alpine:3.10
 LABEL maintainer="it-services@linaro.org"
 
 ################################################################################
+# Needed by multidict >= 4.6.0, see:
+# https://github.com/aio-libs/multidict/issues/390
+# Or remove this env var, and install the `gcc` package
+ENV MULTIDICT_NO_EXTENSIONS=1
+
 # Install unversioned dependency packages from Ubuntu repositories.
 
 ENV UNVERSIONED_DEPENDENCY_PACKAGES \
  # Needed by the busybox script to determine if this is the latest container.
  curl \
+ # Needed by multidict
+ # gcc \
  jq \
  # Needed to install the Python packages
  python3
@@ -27,6 +34,7 @@ RUN apk add --no-cache --update \
 ENV PIP_PACKAGES \
  beautifulsoup4 \
  aiohttp \
+ # multidict \
  wheel
 
 RUN pip3 install \
