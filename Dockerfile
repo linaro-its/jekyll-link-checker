@@ -25,7 +25,7 @@ RUN apk add --no-cache --update \
 # Install Python packages used by the link checker.
 
 ENV PIP_PACKAGES \
- bs4 \
+ beautifulsoup4 \
  aiohttp \
  wheel
 
