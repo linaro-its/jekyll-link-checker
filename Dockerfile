@@ -38,7 +38,10 @@ ENV PIP_PACKAGES \
  wheel
 
 RUN pip3 install \
- ${PIP_PACKAGES}
+ ${PIP_PACKAGES} \
+ # Cleanup cache
+ && \
+ rm -r /root/.cache
 
 COPY check-links-3.py check-links.sh /usr/local/bin/
 RUN chmod a+rx /usr/local/bin/check-links-3.py /usr/local/bin/check-links.sh
