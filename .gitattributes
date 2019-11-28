@@ -1,0 +1,3 @@
+# Ensure that the executable files don't have their line endings messed up
+*.sh    text eol=lf
+*.py    text eol=lf
