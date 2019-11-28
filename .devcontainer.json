@@ -1,7 +1,15 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
 	// "context": "..",
-	"dockerFile": "Dockerfile",
+    "dockerFile": "Dockerfile",
+    "runArgs": [
+        // "--cap-drop", "ALL",
+        "--rm",
+        "-t",
+        "-v", "/etc/passwd:/etc/passwd:ro",
+        "-v", "/etc/group:/etc/group:ro",
+        "--entrypoint", "/bin/ash"
+    ],
 	// Broken in containers?
 	// "extensions": [
 	// 	"ban.spellright",
