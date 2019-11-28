@@ -9,7 +9,7 @@ function get_tag_for_latest(){
     REPOSITORY="linaroits/linkcheck"
     TARGET_TAG="latest"
     # check that we have Internet access - bail quickly if we don't
-    _=$(curl -s "https://auth.docker.io") || return $?
+    curl -Is "https://auth.docker.io" >/dev/null 2>&1 || return $?
     # get authorization token
     TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$REPOSITORY:pull" | jq -r .token) || return $?
     # find all tags
