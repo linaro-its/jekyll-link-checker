@@ -63,7 +63,8 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 
 ENV PIP_PACKAGES \
  bs4 \
- aiohttp
+ aiohttp \
+ requests
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
  pip3 install wheel && \
