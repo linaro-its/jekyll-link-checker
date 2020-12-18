@@ -63,7 +63,7 @@ ENV PIP_PACKAGES \
  aiohttp
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
- pip3 install wheel && \
+#  pip3 install wheel && \
  pip3 install ${PIP_PACKAGES}
 
 COPY check-links-3.py check-links.sh /usr/local/bin/
