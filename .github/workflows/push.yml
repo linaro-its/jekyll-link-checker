@@ -19,20 +19,27 @@ jobs:
       - name: Fetch git repository
         uses: actions/checkout@v2
         with:
-          path: container-repo
+          fetch-depth: 0
+
+      - name: SonarQube Scan
+        uses: philips-software/sonar-scanner-action@master
+        with:
+          url: ${{ secrets.SONARQUBE_HOST }}
+          token: ${{ secrets.SONARQUBE_TOKEN }}
+          projectKey: jekyll-link-checker
+          projectName: Jekyll Link Checker
+
+      - name: Cleanup scan
+        run: sudo rm -rf "$GITHUB_WORKSPACE/.scannerwork"
 
       - name: Determine image tag
         run: |
           IMAGE_TAG=$(echo "${{ github.event.after }}" | cut -c 1-7)
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-      - run: env
-
-      - run: cat $GITHUB_EVENT_PATH
-
       - name: Build container image
         run: |
-          cd $GITHUB_WORKSPACE/container-repo
+          cd $GITHUB_WORKSPACE
           # Do some magic to figure out what our base image is
           IFS=' ' read -ra FOO <<< $(grep "FROM" Dockerfile)
           # Make sure we have the latest Ubuntu base image

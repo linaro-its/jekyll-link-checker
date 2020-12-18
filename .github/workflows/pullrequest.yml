@@ -1,0 +1,22 @@
+name: Pull Request
+
+on: pull_request_target
+
+jobs:
+  sonarQubeTrigger:
+    name: SonarQube Trigger
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@master
+        with:
+          fetch-depth: 0
+      - name: SonarQube Scan
+        uses: philips-software/sonar-scanner-action@master
+        with:
+          url: ${{ secrets.SONARQUBE_HOST }}
+          token: ${{ secrets.SONARQUBE_TOKEN }}
+          projectKey: jekyll-link-checker
+          projectName: Jekyll Link Checker
+          enablePullRequestDecoration: true
+      - name: Cleanup scan
+        run: sudo rm -rf "$GITHUB_WORKSPACE/.scannerwork"
