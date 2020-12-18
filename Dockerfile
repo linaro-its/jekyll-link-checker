@@ -15,7 +15,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
  apt-get upgrade -y && \
  apt-get install -y language-pack-en && \
  locale-gen en_US.UTF-8 && \
- dpkg-reconfigure locales 
+ dpkg-reconfigure locales \
  && \
  apt-get --purge autoremove -y && \
  apt-get clean -y \
