@@ -1,0 +1,53 @@
+name: PushAction
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - .github/workflows/pullrequest.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: [ self-hosted ]
+    steps:
+      - name: Cancel previous runs
+        uses: n1hility/cancel-previous-runs@v2
+        with: 
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch git repository
+        uses: actions/checkout@v2
+        with:
+          path: container-repo
+
+      - name: Determine image tag
+        run: |
+          IMAGE_TAG=$(echo "${{ github.event.after }}" | cut -c 1-7)
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - run: env
+
+      - run: cat $GITHUB_EVENT_PATH
+
+      - name: Build container image
+        run: |
+          cd $GITHUB_WORKSPACE/container-repo
+          # Do some magic to figure out what our base image is
+          IFS=' ' read -ra FOO <<< $(grep "FROM" Dockerfile)
+          # Make sure we have the latest Ubuntu base image
+          docker pull ${FOO[1]}
+          # and then build our container.
+          docker build --force-rm -t "linaroits/linkcheck:$IMAGE_TAG" .
+
+      - name: Publish container image
+        run: |
+          docker tag linaroits/linkcheck:$IMAGE_TAG linaroits/linkcheck:latest
+          docker login -u "${{ secrets.DOCKER_USER }}" -p "${{ secrets.DOCKER_PASSWORD }}"
+          docker push linaroits/linkcheck:latest
+          docker push linaroits/linkcheck:$IMAGE_TAG
+
+      - name: Clean up images
+        run: |
+          docker rmi linaroits/linkcheck:latest
+          docker rmi linaroits/linkcheck:$IMAGE_TAG
