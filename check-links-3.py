@@ -1,16 +1,24 @@
 #!/usr/bin/python3
 #
+# Disable reporting of unbound variables as pyright complains
+# about output_failed_links.
+# pyright: reportUnboundVariable=false
 
-import sys
-import os
-from os.path import join
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+
 import argparse
-import socket
-import aiohttp
 import asyncio
 import concurrent
+import io
+import json
+import os
+import socket
+import sys
+from os.path import join
+from urllib.parse import urlparse
+
+import aiohttp
+import requests
+from bs4 import BeautifulSoup
 
 # The link checking process depends on whether it is a relative
 # or absolute link. If it is a relative link, a file is looked for
@@ -29,6 +37,11 @@ CHROME = {
                   'Chrome/41.0.2228.0 Safari/537.36'
 }
 
+# Globals
+failed_links = []
+file_link_pairs = []
+unique_links = []
+status_count = 1
 
 def drop_dot(foo):
     if foo != "" and foo[0] == '.':
@@ -39,22 +52,25 @@ def drop_dot(foo):
 def get_all_html_files(path):
     result = []
     for root, dirs, files in os.walk(path):
-        for name in files:
-            if name.endswith((".html", ".htm")):
-                f = os.path.join(root, name)
-                if f not in result:
-                    if verbose >= 3:
-                        print("File scan: adding '%s'" % f)
-                    result.append(f)
-        for d in dirs:
-            files_in_d = get_all_html_files(join(root, d))
-            if files_in_d:
-                for f in files_in_d:
-                    if f not in result:
-                        if verbose >= 3:
-                            print("File scan: adding '%s'" % f)
-                        result.append(f)
+        process_html_files(result, files, root)
+        process_html_files(result, dirs, root)
     return result
+
+
+def process_html_files(result, files, root):
+    for name in files:
+        if name.endswith((".html", ".htm")):
+            f = os.path.join(root, name)
+            if f not in result:
+                result.append(f)
+
+def process_html_dirs(result, dirs, root):
+    for d in dirs:
+        files_in_d = get_all_html_files(join(root, d))
+        if files_in_d:
+            for f in files_in_d:
+                if f not in result:
+                    result.append(f)
 
 
 def validate_file_link(filename, text):
@@ -75,7 +91,7 @@ def validate_file_link(filename, text):
         # Text will be pointing at a directory or file, relative to
         # where the parent file is living.
         # head gets us the directory where the parent file lives.
-        head, tail = os.path.split(filename)
+        head, _ = os.path.split(filename)
     if head[-1] != '/' and text[0] != '/':
         combined_path = "%s/%s" % (head, text)
     else:
@@ -115,28 +131,27 @@ def validate_link(filename, text):
     if text is None or text == "" or text[0] == "#":
         # or matched_redirect(text):
         return None
-    else:
-        # Some links don't have the transport on them to ensure that they work
-        # whether the user is coming via http or https, so add it if it is
-        # missing.
-        if len(text) > 2 and text[:2] == "//":
-            text = "https:" + text
-        # Check the URL to see if it is a web link - that is all we check.
-        o = urlparse(text)
-        if not args.noexternal and (o.scheme == "http" or o.scheme == "https"):
-            # We use "file_link_pairs" to track which files reference which
-            # URLs - we only check URLs *once* but then flag up all
-            # refernces to the link.
-            if [filename, text] not in file_link_pairs:
-                file_link_pairs.append([filename, text])
-            # ... only check the links once!
-            if text not in unique_links:
-                unique_links.append(text)
-            return None  # Postpone the decision for now ...
-        elif not args.nointernal and o.scheme == "":
-            return validate_file_link(filename, text)
-        # If skipping stuff, return the answer of no problems ...
-        return None
+    # Some links don't have the transport on them to ensure that they work
+    # whether the user is coming via http or https, so add it if it is
+    # missing.
+    if len(text) > 2 and text[:2] == "//":
+        text = "https:" + text
+    # Check the URL to see if it is a web link - that is all we check.
+    o = urlparse(text)
+    if not args.noexternal and (o.scheme == "http" or o.scheme == "https"):
+        # We use "file_link_pairs" to track which files reference which
+        # URLs - we only check URLs *once* but then flag up all
+        # refernces to the link.
+        if [filename, text] not in file_link_pairs:
+            file_link_pairs.append([filename, text])
+        # ... only check the links once!
+        if text not in unique_links:
+            unique_links.append(text)
+        return None  # Postpone the decision for now ...
+    if not args.nointernal and o.scheme == "":
+        return validate_file_link(filename, text)
+    # If skipping stuff, return the answer of no problems ...
+    return None
 
 
 def output_status(code, value):
@@ -151,42 +166,45 @@ def output_status(code, value):
     return value
 
 
+async def async_url_validation(session, url):
+    async with session.head(
+            url,
+            allow_redirects=True,
+            headers=CHROME) as response:
+        if response.status == 404 or response.status == 405:
+            # Some sites return 404/405 for HEAD requests, so we need to
+            # double-check with a full request.
+            async with session.get(
+                    url,
+                    allow_redirects=True,
+                    headers=CHROME) as response:
+                if response.status != 404 and response.status != 405:
+                    return output_status('.', 0)
+                return output_status('X', response.status)
+        else:
+            if (response.status < 400 or
+                    response.status > 499):
+                return output_status('.', 0)
+            if verbose >= 3:
+                print(response.status, response.url)
+            # We only really care about full-on failures, i.e. 404.
+            # Other status codes can be returned just because we aren't
+            # using a browser, even if we do provide the agent string
+            # for Chrome.
+            return output_status('_', 0)
+
+
 async def async_check_link(session, url):
     # Check that the host resolves, but only if it isn't in the DNS skip list
     parts = urlparse(url)
     if parts.netloc not in dns_skip:
         try:
-            foo = socket.gethostbyname(parts.netloc)  # noqa
+            _ = socket.gethostbyname(parts.netloc)
         except socket.gaierror as err:
             return output_status('D', 1)
     # Now try to validate the URL
     try:
-        async with session.head(
-                url,
-                allow_redirects=True,
-                headers=CHROME) as response:
-            if response.status == 404 or response.status == 405:
-                # Some sites return 404/405 for HEAD requests, so we need to
-                # double-check with a full request.
-                async with session.get(
-                        url,
-                        allow_redirects=True,
-                        headers=CHROME) as response:
-                    if response.status != 404 and response.status != 405:
-                        return output_status('.', 0)
-                    return output_status('X', response.status)
-            else:
-                if (response.status < 400 or
-                        response.status > 499):
-                    return output_status('.', 0)
-                else:
-                    if verbose >= 3:
-                        print(response.status, response.url)
-                    # We only really care about full-on failures, i.e. 404.
-                    # Other status codes can be returned just because we aren't
-                    # using a browser, even if we do provide the agent string
-                    # for Chrome.
-                    return output_status('_', 0)
+        return await async_url_validation(session, url)
     # (Non-)Fatal errors
     except socket.gaierror as err:
         print("Error while checking %s: %s" % (url, err))
@@ -206,6 +224,8 @@ async def async_check_link(session, url):
         return output_status('g', -8)
     except aiohttp.client_exceptions.ClientResponseError:
         return output_status('h', -9)
+    except asyncio.TimeoutError:
+        return output_status('i', -10)
 
 
 async def async_check_web(session, links):
@@ -237,11 +257,12 @@ async def check_unique_links():
     # https://stackoverflow.com/questions/40347726/python-3-5-asyincio-and-aiohttp-errno-101-network-is-unreachable
     conn = aiohttp.TCPConnector(
         family=socket.AF_INET,
-        verify_ssl=False,
+        ssl=False,
         limit=500
     )
+    timeout = aiohttp.ClientTimeout(total=60)
     async with aiohttp.ClientSession(connector=conn,
-                                     conn_timeout=60) as session:
+                                     timeout=timeout) as session:
         await async_check_web(session, unique_links)
     for p in file_link_pairs:
         # p[0] is the file path and p[1] is the URL.
@@ -255,38 +276,47 @@ async def check_unique_links():
 
 # For the specified file, read it in and then check all of the links in it.
 def check_file(filename, skip_list):
+    if matched_skip(filename, skip_list):
+        return []
+
     file_failed_links = []
-    if not matched_skip(filename, skip_list):
-        try:
-            with open(filename, "r") as myfile:
-                data = myfile.read()
-            soup = BeautifulSoup(data, 'html.parser')
-            a_links = soup.find_all('a')
-            # Linaro specific ... find any "edit on GitHub" links so that
-            # they can be EXCLUDED from the list of links to check. The reason
-            # why is because if this is a new page (i.e. in a Pull Request),
-            # the file won't exist in the repository yet and so the link to
-            # the page would fail.
-            gh_links = soup.find_all('a', id="edit_on_github")
-            for g in gh_links:
-                a_links.remove(g)
-            for link in a_links:
-                result = validate_link(filename, link.get('href'))
-                if result is not None:
-                    error = [filename, result]
-                    if error not in file_failed_links:
-                        file_failed_links.append(error)
-            # Check linked images
-            img_links = soup.find_all('img')
-            for link in img_links:
-                result = validate_link(filename, link.get('src'))
-                if result is not None:
-                    error = [filename, result]
-                    if error not in file_failed_links:
-                        file_failed_links.append(error)
-        except Exception as exception:
-            print("FAILED TO READ '%s' - %s" % (filename, str(exception)))
+    try:
+        with open(filename, "r") as myfile:
+            data = myfile.read()
+        soup = BeautifulSoup(data, 'html.parser')
+        check_links(filename, soup, file_failed_links)
+        check_linked_images(filename, soup, file_failed_links)
+    except Exception as exception:
+        print("FAILED TO READ '%s' - %s" % (filename, str(exception)))
     return file_failed_links
+
+
+def check_links(filename, soup, file_failed_links):
+    a_links = soup.find_all('a')
+    # Linaro specific ... find any "edit on GitHub" links so that
+    # they can be EXCLUDED from the list of links to check. The reason
+    # why is because if this is a new page (i.e. in a Pull Request),
+    # the file won't exist in the repository yet and so the link to
+    # the page would fail.
+    gh_links = soup.find_all('a', id="edit_on_github")
+    for g in gh_links:
+        a_links.remove(g)
+    for link in a_links:
+        result = validate_link(filename, link.get('href'))
+        if result is not None:
+            error = [filename, result]
+            if error not in file_failed_links:
+                file_failed_links.append(error)
+
+
+def check_linked_images(filename, soup, file_failed_links):
+    img_links = soup.find_all('img')
+    for link in img_links:
+        result = validate_link(filename, link.get('src'))
+        if result is not None:
+            error = [filename, result]
+            if error not in file_failed_links:
+                file_failed_links.append(error)
 
 
 def failures_to_dict(list_of_failures):
@@ -302,7 +332,7 @@ def failures_to_dict(list_of_failures):
 
 
 # Scan the specified directory, ignoring anything that matches skip_list.
-def scan_directory(path, skip_list):
+def scan_directory(path, skip_list, create_gh_issue, assign_gh_issue, gh_token):
     global failed_links
     global file_link_pairs
     global unique_links
@@ -312,11 +342,29 @@ def scan_directory(path, skip_list):
 
     soft_failure = False
 
-    count = 1
     html_files = get_all_html_files(path)
     total = len(html_files)
     if args.file is not None:
         total = len(args.file)
+    scan_html_files(html_files, skip_list, total)
+    if len(unique_links) == 0:
+        print("No web links to check.")
+    else:
+        soft_failure = scan_web_links()
+    if failed_links != []:
+        if create_gh_issue is None:
+            output_failed_links()
+        else:
+            github_create_issue(create_gh_issue, assign_gh_issue, gh_token)
+    if soft_failure:
+        print("\nLinks have been checked; warnings reported.")
+    else:
+        print("\nLinks have been successfully checked.")
+
+
+def scan_html_files(html_files, skip_list, total):
+    global failed_links
+    count = 1
     for hf in html_files:
         if args.file is None or hf in args.file:
             print("(%s/%s) Checking '%s'" % (count, total, hf))
@@ -325,43 +373,71 @@ def scan_directory(path, skip_list):
             for r in results:
                 if r not in failed_links:
                     failed_links.append(r)
-    if len(unique_links) == 0:
-        print("No web links to check.")
+
+
+def scan_web_links():
+    global failed_links
+    soft_failure = False
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    cul_result = loop.run_until_complete(check_unique_links())
+    loop.close()
+    # If we are NOT reporting broken external links as an error,
+    # report them as warnings if there are any.
+    if args.no_external_errors:
+        if cul_result != []:
+            print("\n\nWARNING! %s failed external links have been "
+                    "found:\n" % len(cul_result))
+            report_failed_links(cul_result)
+            soft_failure = True
     else:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        cul_result = loop.run_until_complete(check_unique_links())
-        loop.close()
-        # If we are NOT reporting broken external links as an error,
-        # report them as warnings if there are any.
-        if args.no_external_errors:
-            if cul_result != []:
-                print("\n\nWARNING! %s failed external links have been "
-                      "found:\n" % len(cul_result))
-                report_failed_links(cul_result)
-                soft_failure = True
-        else:
-            # Can do a simple append here because these are all web failures
-            # and so don't need to check if the failure already exists in the
-            # list.
-            failed_links += cul_result
-    if failed_links != []:
-        if output_file is not None:
-            save_out = sys.stdout
-            fsock = open(output_file, 'w')
-            sys.stdout = fsock
-        else:
-            print("")
-        print("%s failed links have been found:\n" % len(failed_links))
-        report_failed_links(failed_links)
-        if output_file is not None:
-            sys.stdout = save_out
-            fsock.close()
-        sys.exit(1)
-    if soft_failure:
-        print("\nLinks have been checked; warnings reported.")
+        # Can do a simple append here because these are all web failures
+        # and so don't need to check if the failure already exists in the
+        # list.
+        failed_links += cul_result
+    return soft_failure
+
+
+def github_create_issue(issue_url, assignees, token):
+    save_out = sys.stdout
+    fsock = io.StringIO()
+    sys.stdout = fsock
+    print("%s failed links have been found:" % len(failed_links))
+    print("```")
+    report_failed_links(failed_links)
+    print("```")
+    sys.stdout = save_out
+
+    headers = {
+        "accept": "application/vnd.github.v3+json",
+        "Authorization": "token %s" % token
+    }
+    payload = {
+        "title": "%s failed links detected" % len(failed_links),
+        "body": fsock.getvalue(),
+        "assignees": json.loads(assignees)
+    }
+    result = requests.post(
+        url=issue_url,
+        json=payload,
+        headers=headers)
+    if result.status_code == 201:
+        print("Failed links issue created at %s" % result.json()["html_url"])
+
+def output_failed_links():
+    if output_file is not None:
+        save_out = sys.stdout
+        fsock = open(output_file, 'w')
+        sys.stdout = fsock
     else:
-        print("\nLinks have been successfully checked.")
+        print("")
+    print("%s failed links have been found:\n" % len(failed_links))
+    report_failed_links(failed_links)
+    if output_file is not None:
+        sys.stdout = save_out
+        fsock.close()
+    sys.exit(1)
+
 
 
 def report_failed_links(failed_links):
@@ -376,6 +452,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Scan for broken links")
     parser.add_argument('-d', '--directory', nargs='?', default=None,
                         help='specifies the directory to scan')
+    # parser.add_argument('-r', '--redirects', nargs='?', default=None,
+    #                     help='specifies optional CSV file of URL redirects')
     parser.add_argument('--skip-dns-check', nargs='?', default=None,
                         help='specifies text file of FQDNs to skip the DNS '
                         'check on')
@@ -393,17 +471,21 @@ if __name__ == '__main__':
                         help='specifies output file for error results')
     parser.add_argument('--no-external-errors', action='store_true',
                         help='ignores errors caused by external broken links')
+    parser.add_argument('--create-github-issue', action='store',
+                        help='creates issue on specified repo url')
+    parser.add_argument('--assign-github-issue', action='store',
+                        help='assigns the created issue to the array of names')
+    parser.add_argument('--github-access-token', action='store')
     args = parser.parse_args()
     html_cache_results = {}
     dns_skip = []
     verbose = 0
     output_file = None
 
-    print("Linaro Link Checker")
+    print("Linaro Link Checker (2020-10-29)")
 
     if args.verbose is not None:
         verbose = args.verbose
-        print("Verbosity is at level %s" % verbose)
     if args.skip_dns_check is not None:
         print("Loading FQDN skip list from %s" % args.skip_dns_check)
         try:
@@ -421,4 +503,9 @@ if __name__ == '__main__':
         print("Skipping external link checking")
     # For now, assume that we're just scanning the current directory. Add code
     # for file paths and possibly URLs at a future date ...
-    scan_directory("./", args.skip_path)
+    scan_directory(
+        "./",
+        args.skip_path,
+        args.create_github_issue,
+        args.assign_github_issue,
+        args.github_access_token)
