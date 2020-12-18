@@ -38,7 +38,7 @@ jobs:
           # Make sure we have the latest Ubuntu base image
           docker pull ${FOO[1]}
           # and then build our container.
-          docker build --force-rm -t "linaroits/linkcheck:$IMAGE_TAG" .
+          docker build --force-rm --build-arg bamboo_build=$IMAGE_TAG -t "linaroits/linkcheck:$IMAGE_TAG" .
 
       - name: Publish container image
         run: |
