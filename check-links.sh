@@ -53,4 +53,4 @@ fi
 #
 # The "external" script will mount the source directory under /srv so we check against that.
 cd "/srv" || exit
-/usr/local/bin/check-links-3.py "$@"
+/usr/local/bin/check_links_3.py "$@"
