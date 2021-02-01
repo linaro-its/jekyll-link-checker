@@ -1,9 +1,6 @@
 #!/usr/bin/python3
 #
-# Disable reporting of unbound variables as pyright complains
-# about output_failed_links.
-# pyright: reportUnboundVariable=false
-
+""" Script to scan a built website & report on links that are broken. """
 
 import argparse
 import asyncio
@@ -38,18 +35,27 @@ CHROME = {
 }
 
 # Globals
-failed_links = []
-file_link_pairs = []
-unique_links = []
-status_count = 1
+FAILED_LINKS = []
+FILE_LINK_PAIRS = []
+UNIQUE_LINKS = []
+STATUS_COUNT = 1
+HTML_CACHE_RESULTS = {}
+DNS_SKIP = []
+VERBOSE = 0
+OUTPUT_FILE = None
 
-def drop_dot(foo):
-    if foo != "" and foo[0] == '.':
-        return foo[1:]
-    return foo
+def drop_dot(string_to_check):
+    """ If the string starts with a full-stop, drop it. """
+    if string_to_check != "" and string_to_check[0] == '.':
+        return string_to_check[1:]
+    return string_to_check
 
 
 def get_all_html_files(path):
+    """
+    Return a list of all of the HTML files in the path and
+    below.
+    """
     result = []
     for root, dirs, files in os.walk(path):
         process_html_files(result, files, root)
@@ -58,22 +64,31 @@ def get_all_html_files(path):
 
 
 def process_html_files(result, files, root):
+    """
+    For a given list of files, update the list with
+    any that are HTML files.
+    """
     for name in files:
         if name.endswith((".html", ".htm")):
-            f = os.path.join(root, name)
-            if f not in result:
-                result.append(f)
+            file_path = os.path.join(root, name)
+            if file_path not in result:
+                result.append(file_path)
 
 def process_html_dirs(result, dirs, root):
-    for d in dirs:
-        files_in_d = get_all_html_files(join(root, d))
+    """
+    For a given list of directories, get the path for
+    any HTML files in them.
+    """
+    for directory in dirs:
+        files_in_d = get_all_html_files(join(root, directory))
         if files_in_d:
-            for f in files_in_d:
-                if f not in result:
-                    result.append(f)
+            for file_path in files_in_d:
+                if file_path not in result:
+                    result.append(file_path)
 
 
 def validate_file_link(filename, text):
+    """ Check that the specified file-based object exists. """
     # If there is an anchor (#) in the text, we need to look at what
     # comes before it.
     text = text.split("#")[0]
@@ -103,28 +118,32 @@ def validate_file_link(filename, text):
     # If we're looking at a directory, make sure there is an index file in it.
     if combined_path[-1] == '/':
         combined_path += "index.html"
-    if verbose >= 2:
+    if VERBOSE >= 2:
         print(("Validating file: constituent parts are '%s' and '%s',"
                " combined path is '%s'") % (head, text, combined_path))
-    # needs to be a file or directory ...
-    result = os.path.exists(combined_path)
+    # needs to be a file or directory ... but if it is a directory, that means
+    # the path didn't end with a "/" (because we would have added index.html)
+    # so we now flag that as a failure because Linaro's implementation of static
+    # websites doesn't support redirecting from "foo" to "foo/".
+    result = os.path.isfile(combined_path)
     if result:
         return None
-    else:
-        return combined_path
+    return combined_path
 
 
 def matched_skip(text, skip_list):
+    """ Check if text is in the skip list. """
     if skip_list is not None:
-        for s in skip_list:
-            if text.startswith(s):
+        for skip in skip_list:
+            if text.startswith(skip):
                 return True
     return False
 
 
 def validate_link(filename, text):
-    global file_link_pairs
-    global unique_links
+    """ Main link validation processor. """
+    global FILE_LINK_PAIRS # pylint: disable=global-statement
+    global UNIQUE_LINKS # pylint: disable=global-statement
     # Clean up the text first ...
     if text is not None:
         text = text.strip()
@@ -137,36 +156,38 @@ def validate_link(filename, text):
     if len(text) > 2 and text[:2] == "//":
         text = "https:" + text
     # Check the URL to see if it is a web link - that is all we check.
-    o = urlparse(text)
-    if not args.noexternal and (o.scheme == "http" or o.scheme == "https"):
+    obj = urlparse(text)
+    if not args.noexternal and (obj.scheme == "http" or obj.scheme == "https"):
         # We use "file_link_pairs" to track which files reference which
         # URLs - we only check URLs *once* but then flag up all
         # refernces to the link.
-        if [filename, text] not in file_link_pairs:
-            file_link_pairs.append([filename, text])
+        if [filename, text] not in FILE_LINK_PAIRS:
+            FILE_LINK_PAIRS.append([filename, text])
         # ... only check the links once!
-        if text not in unique_links:
-            unique_links.append(text)
+        if text not in UNIQUE_LINKS:
+            UNIQUE_LINKS.append(text)
         return None  # Postpone the decision for now ...
-    if not args.nointernal and o.scheme == "":
+    if not args.nointernal and obj.scheme == "":
         return validate_file_link(filename, text)
     # If skipping stuff, return the answer of no problems ...
     return None
 
 
 def output_status(code, value):
-    global status_count
+    """ Output the status in blocks of 100 """
+    global STATUS_COUNT # pylint: disable=global-statement
 
-    if status_count % 100 == 0:
+    if STATUS_COUNT % 100 == 0:
         end = "\n"
     else:
         end = ""
     print(code, end=end, flush=True)
-    status_count += 1
+    STATUS_COUNT += 1
     return value
 
 
 async def async_url_validation(session, url):
+    """ Validate the URL. """
     async with session.head(
             url,
             allow_redirects=True,
@@ -185,7 +206,7 @@ async def async_url_validation(session, url):
             if (response.status < 400 or
                     response.status > 499):
                 return output_status('.', 0)
-            if verbose >= 3:
+            if VERBOSE >= 3:
                 print(response.status, response.url)
             # We only really care about full-on failures, i.e. 404.
             # Other status codes can be returned just because we aren't
@@ -195,9 +216,10 @@ async def async_url_validation(session, url):
 
 
 async def async_check_link(session, url):
+    """ Check the external link. """
     # Check that the host resolves, but only if it isn't in the DNS skip list
     parts = urlparse(url)
-    if parts.netloc not in dns_skip:
+    if parts.netloc not in DNS_SKIP:
         try:
             _ = socket.gethostbyname(parts.netloc)
         except socket.gaierror as err:
@@ -214,9 +236,9 @@ async def async_check_link(session, url):
         return output_status('b', -3)
     except aiohttp.client_exceptions.ServerTimeoutError:
         return output_status('c', -4)
-    except concurrent.futures._base.CancelledError:
+    except concurrent.futures._base.CancelledError: # pylint: disable=protected-access
         return output_status('d', -5)
-    except concurrent.futures._base.TimeoutError:
+    except concurrent.futures._base.TimeoutError: # pylint: disable=protected-access
         return output_status('e', -6)
     except aiohttp.client_exceptions.ClientOSError:
         return output_status('f', -7)
@@ -229,6 +251,7 @@ async def async_check_link(session, url):
 
 
 async def async_check_web(session, links):
+    """ Check all external links. """
     results = await asyncio.gather(
         *[async_check_link(session, url) for url in links]
     )
@@ -236,23 +259,25 @@ async def async_check_web(session, links):
     # the tasks, so loop through the links again and the index counter
     # will point to the corresponding result.
     i = 0
-    for l in links:
-        if l not in html_cache_results:
+    for link in links:
+        if link not in HTML_CACHE_RESULTS:
             if results[i] == 0:
-                html_cache_results[l] = None
+                HTML_CACHE_RESULTS[link] = None
             elif results[i] > 0:
-                html_cache_results[l] = "%s [%d]" % (l, results[i])
+                HTML_CACHE_RESULTS[link] = "%s [%d]" % (link, results[i])
         i += 1
 
 
-# Perform an async check of all of the web links we've collected then
-# build up a list of the affected files for the faulty links.
 async def check_unique_links():
-    global status_count
-    status_count = 1
+    """
+    Perform an async check of all of the web links we've collected then
+    build up a list of the affected files for the faulty links.
+    """
+    global STATUS_COUNT # pylint: disable=global-statement
+    STATUS_COUNT = 1
 
     web_failed_links = []
-    print("Checking %s web links ..." % len(unique_links))
+    print("Checking %s web links ..." % len(UNIQUE_LINKS))
     # Force IPv4 only to avoid
     # https://stackoverflow.com/questions/40347726/python-3-5-asyincio-and-aiohttp-errno-101-network-is-unreachable
     conn = aiohttp.TCPConnector(
@@ -263,19 +288,22 @@ async def check_unique_links():
     timeout = aiohttp.ClientTimeout(total=60)
     async with aiohttp.ClientSession(connector=conn,
                                      timeout=timeout) as session:
-        await async_check_web(session, unique_links)
-    for p in file_link_pairs:
+        await async_check_web(session, UNIQUE_LINKS)
+    for pair in FILE_LINK_PAIRS:
         # p[0] is the file path and p[1] is the URL.
-        if (p[1] in html_cache_results and
-                html_cache_results[p[1]] is not None):
-            error = [p[0], html_cache_results[p[1]]]
+        if (pair[1] in HTML_CACHE_RESULTS and
+                HTML_CACHE_RESULTS[pair[1]] is not None):
+            error = [pair[0], HTML_CACHE_RESULTS[pair[1]]]
             if error not in web_failed_links:
                 web_failed_links.append(error)
     return web_failed_links
 
 
-# For the specified file, read it in and then check all of the links in it.
 def check_file(filename, skip_list):
+    """
+    For the specified file, read it in and then check all of the links
+    in it.
+    """
     if matched_skip(filename, skip_list):
         return []
 
@@ -286,12 +314,13 @@ def check_file(filename, skip_list):
         soup = BeautifulSoup(data, 'html.parser')
         check_links(filename, soup, file_failed_links)
         check_linked_images(filename, soup, file_failed_links)
-    except Exception as exception:
+    except Exception as exception: # pylint: disable=broad-except
         print("FAILED TO READ '%s' - %s" % (filename, str(exception)))
     return file_failed_links
 
 
 def check_links(filename, soup, file_failed_links):
+    """ Check all links found in the file. """
     a_links = soup.find_all('a')
     # Linaro specific ... find any "edit on GitHub" links so that
     # they can be EXCLUDED from the list of links to check. The reason
@@ -299,8 +328,8 @@ def check_links(filename, soup, file_failed_links):
     # the file won't exist in the repository yet and so the link to
     # the page would fail.
     gh_links = soup.find_all('a', id="edit_on_github")
-    for g in gh_links:
-        a_links.remove(g)
+    for link in gh_links:
+        a_links.remove(link)
     for link in a_links:
         result = validate_link(filename, link.get('href'))
         if result is not None:
@@ -310,6 +339,7 @@ def check_links(filename, soup, file_failed_links):
 
 
 def check_linked_images(filename, soup, file_failed_links):
+    """ Check that all of the image links are valid. """
     img_links = soup.find_all('img')
     for link in img_links:
         result = validate_link(filename, link.get('src'))
@@ -320,10 +350,11 @@ def check_linked_images(filename, soup, file_failed_links):
 
 
 def failures_to_dict(list_of_failures):
+    """ Convert the list into a dictionary. """
     failure_dict = {}
-    for f in list_of_failures:
-        file = drop_dot(f[0])
-        url = drop_dot(f[1])
+    for failure in list_of_failures:
+        file = drop_dot(failure[0])
+        url = drop_dot(failure[1])
         if file in failure_dict:
             failure_dict[file].append(url)
         else:
@@ -331,14 +362,14 @@ def failures_to_dict(list_of_failures):
     return failure_dict
 
 
-# Scan the specified directory, ignoring anything that matches skip_list.
 def scan_directory(path, skip_list, create_gh_issue, assign_gh_issue, gh_token):
-    global failed_links
-    global file_link_pairs
-    global unique_links
-    failed_links = []
-    file_link_pairs = []
-    unique_links = []
+    """ Scan the specified directory, ignoring anything that matches skip_list. """
+    global FAILED_LINKS # pylint: disable=global-statement
+    global FILE_LINK_PAIRS # pylint: disable=global-statement
+    global UNIQUE_LINKS # pylint: disable=global-statement
+    FAILED_LINKS = []
+    FILE_LINK_PAIRS = []
+    UNIQUE_LINKS = []
 
     soft_failure = False
 
@@ -347,11 +378,11 @@ def scan_directory(path, skip_list, create_gh_issue, assign_gh_issue, gh_token):
     if args.file is not None:
         total = len(args.file)
     scan_html_files(html_files, skip_list, total)
-    if len(unique_links) == 0:
+    if len(UNIQUE_LINKS) == 0:
         print("No web links to check.")
     else:
         soft_failure = scan_web_links()
-    if failed_links != []:
+    if FAILED_LINKS != []:
         if create_gh_issue is None:
             output_failed_links()
         else:
@@ -363,20 +394,22 @@ def scan_directory(path, skip_list, create_gh_issue, assign_gh_issue, gh_token):
 
 
 def scan_html_files(html_files, skip_list, total):
-    global failed_links
+    """ Scan each of the specified HTML files. """
+    global FAILED_LINKS # pylint: disable=global-statement
     count = 1
-    for hf in html_files:
-        if args.file is None or hf in args.file:
-            print("(%s/%s) Checking '%s'" % (count, total, hf))
+    for this_file in html_files:
+        if args.file is None or this_file in args.file:
+            print("(%s/%s) Checking '%s'" % (count, total, this_file))
             count += 1
-            results = check_file(hf, skip_list)
-            for r in results:
-                if r not in failed_links:
-                    failed_links.append(r)
+            results = check_file(this_file, skip_list)
+            for res in results:
+                if res not in FAILED_LINKS:
+                    FAILED_LINKS.append(res)
 
 
 def scan_web_links():
-    global failed_links
+    """ Scan all of the discovered external links. """
+    global FAILED_LINKS # pylint: disable=global-statement
     soft_failure = False
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -388,32 +421,30 @@ def scan_web_links():
         if cul_result != []:
             print("\n\nWARNING! %s failed external links have been "
                     "found:\n" % len(cul_result))
-            report_failed_links(cul_result)
+            report_failed_links(cul_result, sys.stdout)
             soft_failure = True
     else:
         # Can do a simple append here because these are all web failures
         # and so don't need to check if the failure already exists in the
         # list.
-        failed_links += cul_result
+        FAILED_LINKS += cul_result
     return soft_failure
 
 
 def github_create_issue(issue_url, assignees, token):
-    save_out = sys.stdout
+    """ Create a GitHub issue to report the failed links. """
     fsock = io.StringIO()
-    sys.stdout = fsock
-    print("%s failed links have been found:" % len(failed_links))
-    print("```")
-    report_failed_links(failed_links)
-    print("```")
-    sys.stdout = save_out
+    print("%s failed links have been found:" % len(FAILED_LINKS), file=fsock)
+    print("```", file=fsock)
+    report_failed_links(FAILED_LINKS, fsock)
+    print("```", file=fsock)
 
     headers = {
         "accept": "application/vnd.github.v3+json",
         "Authorization": "token %s" % token
     }
     payload = {
-        "title": "%s failed links detected" % len(failed_links),
+        "title": "%s failed links detected" % len(FAILED_LINKS),
         "body": fsock.getvalue(),
         "assignees": json.loads(assignees)
     }
@@ -425,27 +456,26 @@ def github_create_issue(issue_url, assignees, token):
         print("Failed links issue created at %s" % result.json()["html_url"])
 
 def output_failed_links():
-    if output_file is not None:
-        save_out = sys.stdout
-        fsock = open(output_file, 'w')
-        sys.stdout = fsock
+    """ Output a list of failed links to stdout or a file. """
+    output_to = sys.stdout
+    if OUTPUT_FILE is not None:
+        output_to = open(OUTPUT_FILE, 'w')
     else:
         print("")
-    print("%s failed links have been found:\n" % len(failed_links))
-    report_failed_links(failed_links)
-    if output_file is not None:
-        sys.stdout = save_out
-        fsock.close()
+    print("%s failed links have been found:\n" % len(FAILED_LINKS), file=output_to)
+    report_failed_links(FAILED_LINKS, output_to)
+    if OUTPUT_FILE is not None:
+        output_to.close()
     sys.exit(1)
 
 
-
-def report_failed_links(failed_links):
-    failure_dict = failures_to_dict(failed_links)
+def report_failed_links(link_list, output_to):
+    """ Report all of the failed links for a given file. """
+    failure_dict = failures_to_dict(link_list)
     for file in sorted(failure_dict):
-        print("%s:" % file)
+        print("%s:" % file, file=output_to)
         for ref in failure_dict[file]:
-            print("   %s" % ref)
+            print("   %s" % ref, file=output_to)
 
 
 if __name__ == '__main__':
@@ -477,23 +507,19 @@ if __name__ == '__main__':
                         help='assigns the created issue to the array of names')
     parser.add_argument('--github-access-token', action='store')
     args = parser.parse_args()
-    html_cache_results = {}
-    dns_skip = []
-    verbose = 0
-    output_file = None
 
     print("Linaro Link Checker (2020-10-29)")
 
     if args.verbose is not None:
-        verbose = args.verbose
+        VERBOSE = args.verbose
     if args.skip_dns_check is not None:
         print("Loading FQDN skip list from %s" % args.skip_dns_check)
         try:
-            dns_skip = list(open(args.skip_dns_check))
-        except Exception as exception:
+            DNS_SKIP = list(open(args.skip_dns_check))
+        except Exception as exception: # pylint: disable=broad-except
             print("Couldn't load FQDN skip list")
     if args.output is not None:
-        output_file = args.output
+        OUTPUT_FILE = args.output
     if args.directory is not None:
         print("Scanning '%s'" % args.directory)
         os.chdir(args.directory)
