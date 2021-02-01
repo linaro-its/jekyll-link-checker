@@ -95,6 +95,11 @@ def validate_file_link(filename, text):
     # If there is a query (?) in the text, we need to look at what
     # comes before it.
     text = text.split("?")[0]
+    #
+    # After that, we may actually end up with an empty string because
+    # it could be something like "?foo" or "#foo"
+    if text == "":
+        return None
     # If "text" starts with "/" then we need to be looking at the
     # path relative to where we started scanning.
     #
