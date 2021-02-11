@@ -538,7 +538,7 @@ if __name__ == '__main__':
     parser.add_argument('--github-access-token', action='store')
     args = parser.parse_args()
 
-    print("Linaro Link Checker (2020-10-29)")
+    print("Linaro Link Checker (2021-02-11)")
 
     if args.verbose is not None:
         VERBOSE = args.verbose
