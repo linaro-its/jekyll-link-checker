@@ -35,6 +35,7 @@ CHROME = {
 }
 
 # Globals
+FAILED_DIRS = []
 FAILED_LINKS = []
 FILE_LINK_PAIRS = []
 UNIQUE_LINKS = []
@@ -59,7 +60,7 @@ def get_all_html_files(path):
     result = []
     for root, dirs, files in os.walk(path):
         process_html_files(result, files, root)
-        process_html_files(result, dirs, root)
+        process_html_dirs(dirs, root)
     return result
 
 
@@ -74,17 +75,20 @@ def process_html_files(result, files, root):
             if file_path not in result:
                 result.append(file_path)
 
-def process_html_dirs(result, dirs, root):
+
+def process_html_dirs(dirs, root):
     """
-    For a given list of directories, get the path for
-    any HTML files in them.
+    For a given list of directories, check that none of the directories
+    has a full-stop in the name. Note that we do not need to recurse
+    through the directories because os.walk does that already for all of
+    the files.
     """
+    global FAILED_DIRS
     for directory in dirs:
-        files_in_d = get_all_html_files(join(root, directory))
-        if files_in_d:
-            for file_path in files_in_d:
-                if file_path not in result:
-                    result.append(file_path)
+        if "." in directory:
+            path = join(root, directory)
+            if path not in FAILED_DIRS:
+                FAILED_DIRS.append(path)
 
 
 def validate_file_link(filename, text):
@@ -387,7 +391,7 @@ def scan_directory(path, skip_list, create_gh_issue, assign_gh_issue, gh_token):
         print("No web links to check.")
     else:
         soft_failure = scan_web_links()
-    if FAILED_LINKS != []:
+    if FAILED_LINKS != [] or FAILED_DIRS != []:
         if create_gh_issue is None:
             output_failed_links()
         else:
@@ -438,18 +442,28 @@ def scan_web_links():
 
 def github_create_issue(issue_url, assignees, token):
     """ Create a GitHub issue to report the failed links. """
+    subject = ""
     fsock = io.StringIO()
-    print("%s failed links have been found:" % len(FAILED_LINKS), file=fsock)
-    print("```", file=fsock)
-    report_failed_links(FAILED_LINKS, fsock)
-    print("```", file=fsock)
+    if FAILED_DIRS != []:
+        subject = "%s directories with full-stops in name (invalid)" % len(FAILED_DIRS)
+        print("```", file=fsock)
+        report_failed_dirs(FAILED_DIRS, fsock)
+        print("```", file=fsock)
+    if FAILED_LINKS != []:
+        if subject != "":
+            subject += ", "
+        subject += "%s failed links" % len(FAILED_LINKS)
+        print("%s failed links have been found:" % len(FAILED_LINKS), file=fsock)
+        print("```", file=fsock)
+        report_failed_links(FAILED_LINKS, fsock)
+        print("```", file=fsock)
 
     headers = {
         "accept": "application/vnd.github.v3+json",
         "Authorization": "token %s" % token
     }
     payload = {
-        "title": "%s failed links detected" % len(FAILED_LINKS),
+        "title": subject,
         "body": fsock.getvalue(),
         "assignees": json.loads(assignees)
     }
@@ -467,11 +481,22 @@ def output_failed_links():
         output_to = open(OUTPUT_FILE, 'w')
     else:
         print("")
-    print("%s failed links have been found:\n" % len(FAILED_LINKS), file=output_to)
-    report_failed_links(FAILED_LINKS, output_to)
+    if FAILED_DIRS != []:
+        print(
+            "%s directories have been found with full-stops in name (invalid):\n" % len(FAILED_DIRS), file=output_to)
+        report_failed_dirs(FAILED_DIRS, output_to)
+    if FAILED_LINKS != []:
+        print("%s failed links have been found:\n" % len(FAILED_LINKS), file=output_to)
+        report_failed_links(FAILED_LINKS, output_to)
     if OUTPUT_FILE is not None:
         output_to.close()
     sys.exit(1)
+
+
+def report_failed_dirs(dir_list, output_to):
+    """ Report any directories with full-stops in their names. """
+    for dir in dir_list:
+        print(dir, file=output_to)
 
 
 def report_failed_links(link_list, output_to):
