@@ -2,7 +2,7 @@
 
 # Set the base image to Ubuntu (version 18.04).
 # Uses the new "ubuntu-minimal" image.
-FROM ubuntu:18.04
+FROM ubuntu:22.04
 
 LABEL maintainer="it-services@linaro.org"
 
